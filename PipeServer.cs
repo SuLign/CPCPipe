@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -98,7 +97,7 @@ namespace CPCPipe.Interfaces
                     }
                     return false;
                 }
-                catch (Exception ex)
+                catch
                 {
                     return false;
                 }
