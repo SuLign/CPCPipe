@@ -15,7 +15,7 @@ namespace CPCPipe
         private Socket _sock;
         private byte[] _buffer;
         private ConcurrentDictionary<string, Action<object>> _actionList;
-
+        private ConcurrentDictionary<string, Type> _objTypes;
         public event Action<string> ErrMessage;
 
         public PipeClient()
@@ -60,7 +60,8 @@ namespace CPCPipe
                             var pipemsg = JsonConvert.DeserializeObject<PipeMessage>(str);
                             if (_actionList.ContainsKey(pipemsg.MessageName))
                             {
-                                _actionList[pipemsg.MessageName]?.Invoke(pipemsg.Value);
+                                if (_objTypes.ContainsKey(pipemsg.MessageName)) return;
+                                _actionList[pipemsg.MessageName]?.Invoke(pipemsg.GetValue(_objTypes[pipemsg.MessageName]));
                             }
                         }
                         catch
@@ -69,7 +70,7 @@ namespace CPCPipe
                         }
                     }
                     sock.BeginReceive(_buffer, 0, 65536, SocketFlags.None, callback, sock);
-                };
+                }
             }
             catch (Exception ex)
             {

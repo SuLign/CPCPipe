@@ -18,6 +18,7 @@ namespace CPCPipe.Interfaces
         private byte[] _buffer;
         private int _bufferLength = 0;
         private ConcurrentDictionary<string, Action<object>> _actionList;
+        private ConcurrentDictionary<string, Type> _objTypes;
         private long _lastTick = -1;
         private Task _heartBeatsMonitor;
 
@@ -26,6 +27,7 @@ namespace CPCPipe.Interfaces
         public PipeServer()
         {
             _actionList = new ConcurrentDictionary<string, Action<object>>();
+            _objTypes = new ConcurrentDictionary<string, Type>();
             _heartBeatsMonitor = new Task(() =>
             {
                 while (true)
@@ -76,7 +78,8 @@ namespace CPCPipe.Interfaces
                                 var pipemsg = JsonConvert.DeserializeObject<PipeMessage>(str);
                                 if (_actionList.ContainsKey(pipemsg.MessageName))
                                 {
-                                    _actionList[pipemsg.MessageName]?.Invoke(pipemsg.Value);
+                                    if (_objTypes.ContainsKey(pipemsg.MessageName)) return;
+                                    _actionList[pipemsg.MessageName]?.Invoke(pipemsg.GetValue(_objTypes[pipemsg.MessageName]));
                                 }
                             }
                             catch
@@ -115,12 +118,11 @@ namespace CPCPipe.Interfaces
             return true;
         }
 
-        public bool RegistFunc(string funcKey, Action<object> func)
+        public bool RegistFunc<T>(string funcKey, Action<object> func)
         {
-            if (_actionList.ContainsKey(funcKey))
-            {
-                return false;
-            }
+            if (_actionList.ContainsKey(funcKey)) return false;
+            if (_objTypes.ContainsKey(funcKey)) return false;
+            _objTypes.TryAdd(funcKey, typeof(T));
             _actionList.TryAdd(funcKey, func);
             return true;
         }
