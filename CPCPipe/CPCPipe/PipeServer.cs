@@ -9,24 +9,23 @@ using System.Threading.Tasks;
 
 using Newtonsoft.Json;
 
-namespace CPCPipe.Interfaces
+namespace CPCPipe
 {
     public class PipeServer
     {
         private Socket _sock;
         private const int DEFAULT_PORT = 52164;
         private byte[] _buffer;
-        private int _bufferLength = 0;
-        private ConcurrentDictionary<string, Action<object>> _actionList;
+        private ConcurrentDictionary<string, Delegate> _actionList;
         private ConcurrentDictionary<string, Type> _objTypes;
         private long _lastTick = -1;
         private Task _heartBeatsMonitor;
-
+        private IPEndPoint _remoteEnd;
         private bool _clientConnected = false;
 
         public PipeServer()
         {
-            _actionList = new ConcurrentDictionary<string, Action<object>>();
+            _actionList = new ConcurrentDictionary<string, Delegate>();
             _objTypes = new ConcurrentDictionary<string, Type>();
             _heartBeatsMonitor = new Task(() =>
             {
@@ -62,12 +61,13 @@ namespace CPCPipe.Interfaces
                     //_sock.Listen(10);
                     _buffer = new byte[655360];
 
-                    _sock.BeginReceive(_buffer, 0, 65536, SocketFlags.None, callback, _sock);
+                    EndPoint remoteEnd = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 1);
+                    _sock.BeginReceiveFrom(_buffer, 0, 65536, SocketFlags.None, ref remoteEnd, callback, remoteEnd);
 
                     void callback(IAsyncResult e)
                     {
-                        var sock = e.AsyncState as Socket;
-                        var readLen = sock.EndReceive(e);
+                        _remoteEnd = e.AsyncState as IPEndPoint;
+                        var readLen = _sock.EndReceiveFrom(e, ref remoteEnd);
                         if (readLen > 0)
                         {
                             _lastTick = DateTime.Now.Ticks;
@@ -78,8 +78,14 @@ namespace CPCPipe.Interfaces
                                 var pipemsg = JsonConvert.DeserializeObject<PipeMessage>(str);
                                 if (_actionList.ContainsKey(pipemsg.MessageName))
                                 {
-                                    if (_objTypes.ContainsKey(pipemsg.MessageName)) return;
-                                    _actionList[pipemsg.MessageName]?.Invoke(pipemsg.GetValue(_objTypes[pipemsg.MessageName]));
+                                    if (_objTypes.ContainsKey(pipemsg.MessageName))
+                                    {
+                                        _actionList[pipemsg.MessageName]?.DynamicInvoke(pipemsg.GetValue(_objTypes[pipemsg.MessageName]));
+                                    }
+                                    else
+                                    {
+                                        _actionList[pipemsg.MessageName]?.DynamicInvoke(pipemsg.Value);
+                                    }
                                 }
                             }
                             catch
@@ -87,7 +93,7 @@ namespace CPCPipe.Interfaces
 
                             }
                         }
-                        sock.BeginReceive(_buffer, 0, 65536, SocketFlags.None, callback, sock);
+                        _sock.BeginReceiveFrom(_buffer, 0, 65536, SocketFlags.None, ref remoteEnd, callback, remoteEnd);
                     };
                     break;
                 }
@@ -110,18 +116,28 @@ namespace CPCPipe.Interfaces
 
         public bool SendMessage<T>(T message, string messageTitle)
         {
-            if (_sock == null || !_sock.Connected || !_clientConnected) return false;
+            if (_sock == null || !_clientConnected) return false;
             var pipmsg = PipeMessage.CreateMessage(messageTitle, message);
             var json = JsonConvert.SerializeObject(pipmsg);
             var jsonBytes = Encoding.Default.GetBytes(json);
-            _sock.Send(jsonBytes);
-            return true;
+            if (_remoteEnd != null)
+            {
+                var sent = _sock.SendTo(jsonBytes, _remoteEnd);
+                return sent > 0;
+            }
+            return false;
         }
 
-        public bool RegistFunc<T>(string funcKey, Action<object> func)
+        public bool RegistFunc<T>(string funcKey, Action<T> func)
         {
-            if (_actionList.ContainsKey(funcKey)) return false;
-            if (_objTypes.ContainsKey(funcKey)) return false;
+            if (_actionList.ContainsKey(funcKey))
+            {
+                return false;
+            }
+            if (_objTypes.ContainsKey(funcKey))
+            {
+                return false;
+            }
             _objTypes.TryAdd(funcKey, typeof(T));
             _actionList.TryAdd(funcKey, func);
             return true;

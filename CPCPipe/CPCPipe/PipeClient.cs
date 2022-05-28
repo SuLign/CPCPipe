@@ -14,13 +14,16 @@ namespace CPCPipe
     {
         private Socket _sock;
         private byte[] _buffer;
-        private ConcurrentDictionary<string, Action<object>> _actionList;
+        private ConcurrentDictionary<string, Delegate> _actionList;
         private ConcurrentDictionary<string, Type> _objTypes;
+
         public event Action<string> ErrMessage;
+        public event Action<bool> ConnectionStateChanged;
 
         public PipeClient()
         {
-            _actionList = new ConcurrentDictionary<string, Action<object>>();
+            _actionList = new ConcurrentDictionary<string, Delegate>();
+            _objTypes = new ConcurrentDictionary<string, Type>();
         }
 
         /// <summary>
@@ -34,13 +37,13 @@ namespace CPCPipe
             {
                 _sock ??= new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
                 await _sock.ConnectAsync(serverEndPoint);
-
-                await Task.Factory.StartNew(() =>
+                ConnectionStateChanged?.Invoke(true);
+                await Task.Factory.StartNew(async () =>
                 {
                     while (true)
                     {
                         SendMessage<string>("@@HeartBeats$$##@@", "@@HeartBeats$$##@@");
-                        Task.Delay(1000);
+                        await Task.Delay(1000);
                     }
                 });
 
@@ -60,8 +63,14 @@ namespace CPCPipe
                             var pipemsg = JsonConvert.DeserializeObject<PipeMessage>(str);
                             if (_actionList.ContainsKey(pipemsg.MessageName))
                             {
-                                if (_objTypes.ContainsKey(pipemsg.MessageName)) return;
-                                _actionList[pipemsg.MessageName]?.Invoke(pipemsg.GetValue(_objTypes[pipemsg.MessageName]));
+                                if (_objTypes.ContainsKey(pipemsg.MessageName))
+                                {
+                                    _actionList[pipemsg.MessageName]?.DynamicInvoke(pipemsg.GetValue(_objTypes[pipemsg.MessageName]));
+                                }
+                                else
+                                {
+                                    _actionList[pipemsg.MessageName]?.DynamicInvoke(pipemsg.Value);
+                                }
                             }
                         }
                         catch
@@ -70,7 +79,7 @@ namespace CPCPipe
                         }
                     }
                     sock.BeginReceive(_buffer, 0, 65536, SocketFlags.None, callback, sock);
-                }
+                };
             }
             catch (Exception ex)
             {
@@ -84,15 +93,21 @@ namespace CPCPipe
         /// <returns>断开状态</returns>
         public bool Disconnect()
         {
+            ConnectionStateChanged?.Invoke(false);
             return true;
         }
 
-        public bool RegistFunc<T>(T value, string funcKey, Action<object> func)
+        public bool RegistFunc<T>(string funcKey, Action<T> func)
         {
             if (_actionList.ContainsKey(funcKey))
             {
                 return false;
             }
+            if (_objTypes.ContainsKey(funcKey))
+            {
+                return false;
+            }
+            _objTypes.TryAdd(funcKey, typeof(T));
             _actionList.TryAdd(funcKey, func);
             return true;
         }

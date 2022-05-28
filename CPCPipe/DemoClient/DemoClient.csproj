@@ -15,6 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\CommDef\CommDef.csproj" />
     <ProjectReference Include="..\CPCPipe\CPCPipe.csproj" />
   </ItemGroup>
 </Project>

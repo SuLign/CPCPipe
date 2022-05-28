@@ -1,8 +1,9 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
-
-using Newtonsoft.Json;
 
 namespace CPCPipe
 {
@@ -24,18 +25,24 @@ namespace CPCPipe
             ValueType = valueType;
         }
 
-        public T GetValue<T>()
+        public object GetValue(Type type)
         {
-            if (typeof(T) == ValueType)
+            if (type == ValueType)
             {
-                try
+                if (ValueType != typeof(JObject) && Value is JObject v)
                 {
-                    return JsonConvert.DeserializeObject<T>(Value.ToString());
+                    return JsonConvert.DeserializeObject((string)v.ToString(), type);
                 }
-                catch
+                else if (ValueType != typeof(JArray) && Value is JArray vs)
                 {
-                    return default;
+                    if (type.IsArray)
+                    {
+                        var arr = Array.CreateInstance(type.GetElementType(), vs.Count);
+                        Array.Copy(vs.Select(e => e.ToObject(type.GetElementType())).ToArray(), arr, vs.Count);
+                        return arr;
+                    }
                 }
+                return Value;
             }
             else
             {
@@ -43,18 +50,17 @@ namespace CPCPipe
             }
         }
 
-        public object GetValue(Type type)
+
+
+        public T GetValue<T>()
         {
-            if (type == ValueType)
+            if (typeof(T) == ValueType)
             {
-                try
+                if (ValueType != typeof(string) && Value is string v)
                 {
-                    return JsonConvert.DeserializeObject(Value.ToString(), type);
+                    return JsonConvert.DeserializeObject<T>((string)Value);
                 }
-                catch
-                {
-                    return default;
-                }
+                return (T)Value;
             }
             else
             {
